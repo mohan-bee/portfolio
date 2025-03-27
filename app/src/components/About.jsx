@@ -41,11 +41,19 @@ const AboutContainer = styled(motion.div)`
   text-align: center;
   padding: 50px 20px;
   position: relative;
+  @media screen and (max-width: 768px){
+    flex-direction: column-reverse;
+
+  }
 `;
 
 const DoodleImage = styled(motion.img)`
   width: 800px;
   margin-bottom: 20px;
+  @media screen and (max-width: 768px){
+    width: 300px;
+    
+  }
 `;
 
 const Content = styled(motion.div)`

@@ -1,5 +1,4 @@
 import React from 'react'
-import Box from './components/Box'
 import Hero from './components/Hero'
 import About from './components/About'
 import Projects from './components/Projects'
@@ -14,7 +13,7 @@ const App = () => {
       <Projects />
       <Github />
       <Contact />
-      {/* <Box />  */}
+
     </div>
   )
 }

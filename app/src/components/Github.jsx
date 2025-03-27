@@ -15,4 +15,10 @@ export default Github
 const Container = styled.div`
     display: flex;
     justify-content: space-evenly;
+    @media screen and (max-width: 768px) {
+      flex-direction: column;
+      margin-top: 100px;
+      padding: 0 10px;
+    }
+
 `
