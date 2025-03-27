@@ -1,6 +1,7 @@
 import { motion } from 'framer-motion';
 import React from 'react';
 import styled from 'styled-components';
+import {Github, Linkedin, Mail} from 'lucide-react'
 
 const Contact = () => {
   return (
@@ -15,8 +16,13 @@ const Contact = () => {
           alt="Doodle"
         />
        <ContactInfo>
-        <p>Email: mohn08052006@gmail.com</p>
-        <a href="https://www.linkedin.com/in/mohan-undefined-88b655318/">Linked In</a>
+
+        <p>Connect With Me</p>
+        <div>
+        <a href="mailto:mohn08052006@gmail.com" target='__self' style={{color: 'black'}}> <Mail /> </a>
+        <a href="https://www.linkedin.com/in/mohan-undefined-88b655318/" target='__self'> <Linkedin /> </a>
+        <a href="https://github.com/mohan-bee" target='__self' style={{color: 'black'}} > <Github /> </a>
+        </div>
        </ContactInfo>
       </ContactContainer>
     </MainContainer>
@@ -67,13 +73,18 @@ const ContactInfo = styled.div`
   background: rgba(255, 255, 255, 0.9);
   padding: 20px;
   border-radius: 10px;
-  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.1);
-  
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  border: 1px solid gray;
   p {
       margin: 10px 0;
       font-family: 'Gill Sans', 'Gill Sans MT', Calibri, 'Trebuchet MS', sans-serif;
   }
-
+  div{
+    display: flex;
+    gap: 15px;
+  }
   a {
     color: #ff7eb3;
     text-decoration: none;
