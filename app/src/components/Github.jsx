@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import styled, { keyframes } from 'styled-components';
 import axios from 'axios';
-import { FireExtinguisher, Flame } from 'lucide-react';
+import { FireExtinguisher, Flame, Link } from 'lucide-react';
 
 // --- Utility: Calculate streak ---
 const calculateStreak = (submissionCalendar) => {
@@ -84,6 +84,8 @@ font-family: sans-serif;
     #1e40af
   );
   background-size: 200% 200%;
+  -webkit-text-stroke-width: 1px;
+  -webkit-text-stroke-color: #1e40af;
   animation: ${wave} 3.5s ease-in-out infinite;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -125,6 +127,10 @@ const Title = styled.h2`
   color: white;
   font-family: sans-serif;
   margin-bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  
 `;
 
 const Loading = styled.div`
@@ -176,15 +182,17 @@ export default function Github() {
       </StatsRow>
 
       <StreakBanner>
-        <Title>LeetCode Current Streak <Flame />  </Title>
+        <Title>LeetCode Current Streak <a href="https://leetcode.com/u/AGuLerDXpz/" target='__blank'><Link style={{cursor: 'pointer', color: 'white'}}/></a> </Title>
 
         {loading ? (
           <Loading>Loading...</Loading>
         ) : (
           <StreakDisplay>
-            <WaterFireText>{streak} </WaterFireText>
-            <span>days</span>
+            <WaterFireText>{streak + 1} </WaterFireText>
+            
+            <span>Days </span>
           </StreakDisplay>
+          
         )}
 
       </StreakBanner>
