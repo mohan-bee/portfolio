@@ -182,7 +182,7 @@ export default function Github() {
       </StatsRow>
 
       <StreakBanner>
-        <Title>LeetCode Current Streak <a href="https://leetcode.com/u/AGuLerDXpz/" target='__blank'><Link style={{cursor: 'pointer', color: 'white'}}/></a> </Title>
+        <Title>LeetCode Current Streak <a href="https://leetcode.com/u/mohan-bee/" target='__blank'><Link style={{cursor: 'pointer', color: 'white'}}/></a> </Title>
 
         {loading ? (
           <Loading>Loading...</Loading>
