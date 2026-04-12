@@ -541,7 +541,7 @@ export default function App() {
             mohan-bee
           </span>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-            {/* <a
+            <a
               href="https://gitroll.io/profile/uZEvGpS36uSU2V0iQdA2VmJMQnnO2"
               target="_blank"
               rel="noopener noreferrer"
@@ -554,7 +554,7 @@ export default function App() {
                 loading="lazy"
                 style={{ height: 20, width: "auto", display: "block" }}
               />
-            </a> */}
+            </a> 
             {[
               { icon: <Ico.email />, label: "mohn08052006@gmail.com", href: "mailto:mohn08052006@gmail.com" },
               { icon: <Ico.github />, label: "GitHub", href: "https://github.com/mohan-bee" },
