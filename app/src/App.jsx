@@ -1,13 +1,23 @@
-import { useState, useEffect, useCallback } from "react";
+import { useMemo, useState, useEffect, useCallback } from "react";
+import {
+  X,
+  Search,
+  SlidersHorizontal,
+  GitPullRequest,
+  CircleDot,
+  CheckCheck,
+  Circle,
+  ArrowDownUp,
+  Sparkles,
+} from "lucide-react";
+
+import impactCache from "./data/contrib-impact.json";
+
+import { AUTHOR, ORGS } from "./contrib-config";
 
 /* ══════════════════════════════════════════════════
    CONSTANTS
 ══════════════════════════════════════════════════ */
-const AUTHOR = "mohan-bee";
-const ORGS = [
-  { name: "tscircuit", repo: "tscircuit/tscircuit.com" },
-  { name: "GraphiteEditor", repo: "GraphiteEditor/Graphite" },
-];
 
 /* ══════════════════════════════════════════════════
    SVG ICONS
@@ -30,7 +40,7 @@ const Ico = {
     </svg>
   ),
   merged: () => (
-    <svg viewBox="0 0 16 16" width="13" height="13" fill="#a371f7">
+    <svg viewBox="0 0 16 16" width="13" height="13" fill="currentColor">
       <path d="M5.45 5.154A4.25 4.25 0 0 0 9.25 7.5h1.378a2.251 2.251 0 1 1 0 1.5H9.25A5.734 5.734 0 0 1 5 7.123v3.505a2.25 2.25 0 1 1-1.5 0V5.372a2.25 2.25 0 1 1 1.95-.218ZM4.25 13.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Zm8.5-4.5a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5ZM5 3.25a.75.75 0 1 0 0 .005V3.25Z" />
     </svg>
   ),
@@ -93,10 +103,10 @@ const Ico = {
 ══════════════════════════════════════════════════ */
 function Badge({ state, merged, isIssue }) {
   const cfg = merged
-    ? { color: "#a371f7", label: "merged", Icon: Ico.merged }
+    ? { color: "#111", label: "merged", Icon: Ico.merged }
     : state === "closed"
-    ? { color: isIssue ? "#a371f7" : "#e5534b", label: "closed", Icon: isIssue ? Ico.merged : null }
-    : { color: "#3fb950", label: "open", Icon: null };
+    ? { color: "#666", label: "closed", Icon: isIssue ? Ico.merged : null }
+    : { color: "#666", label: "open", Icon: null };
   return (
     <span style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 10, fontWeight: 500, color: cfg.color, border: `1px solid ${cfg.color}55`, borderRadius: 20, padding: "2px 8px", whiteSpace: "nowrap" }}>
       {cfg.Icon && <cfg.Icon />}
@@ -108,16 +118,62 @@ function Badge({ state, merged, isIssue }) {
 /* ══════════════════════════════════════════════════
    GITHUB FETCHER
 ══════════════════════════════════════════════════ */
-async function fetchOrgContribs(repo) {
+function parseRepoFullFromHtmlUrl(htmlUrl) {
+  // https://github.com/<owner>/<repo>/(pull|issues)/<num>
+  const m = String(htmlUrl || "").match(/^https:\/\/github\.com\/([^/]+\/[^/]+)\/(pull|issues)\//);
+  return m?.[1] || null;
+}
+
+async function fetchOrgContribs(org) {
   const h = { Accept: "application/vnd.github+json" };
-  const [prRes, issRes] = await Promise.all([
-    fetch(`https://api.github.com/search/issues?q=repo:${repo}+author:${AUTHOR}+type:pr&per_page=20`, { headers: h }),
-    fetch(`https://api.github.com/search/issues?q=repo:${repo}+author:${AUTHOR}+type:issue&per_page=20`, { headers: h }),
+
+  // GitHub Search API doesn't include merged_at on results. We query merged PRs separately
+  // and join by PR number to compute `merged` without per-PR API calls.
+  const [prRes, prMergedRes, issRes] = await Promise.all([
+    fetch(`https://api.github.com/search/issues?q=org:${org}+author:${AUTHOR}+is:pr&per_page=100`, { headers: h }),
+    fetch(`https://api.github.com/search/issues?q=org:${org}+author:${AUTHOR}+is:pr+is:merged&per_page=100`, { headers: h }),
+    fetch(`https://api.github.com/search/issues?q=org:${org}+author:${AUTHOR}+is:issue&per_page=100`, { headers: h }),
   ]);
-  const [prData, issData] = await Promise.all([prRes.json(), issRes.json()]);
+
+  // If we get rate-limited / blocked, bubble a message instead of silently showing 0 items.
+  if (!prRes.ok || !prMergedRes.ok || !issRes.ok) {
+    const s = [prRes, prMergedRes, issRes].find(r => !r.ok);
+    const t = await s.text().catch(() => "");
+    return { prs: [], issues: [], error: `GitHub API error (${s.status}): ${t || s.statusText}` };
+  }
+
+  const [prData, prMergedData, issData] = await Promise.all([prRes.json(), prMergedRes.json(), issRes.json()]);
+
+  if ((prData && prData.message) || (prMergedData && prMergedData.message) || (issData && issData.message)) {
+    const msg = prData?.message || prMergedData?.message || issData?.message;
+    return { prs: [], issues: [], error: `GitHub API: ${msg}` };
+  }
+
+  // Use global item id to avoid collisions across repos in an org-wide search.
+  const mergedIdSet = new Set((prMergedData.items || []).map(i => i.id));
   return {
-    prs: (prData.items || []).map(i => ({ id: i.number, title: i.title, url: i.html_url, state: i.state, merged: !!i.pull_request?.merged_at, date: i.created_at?.slice(0, 10) })),
-    issues: (issData.items || []).map(i => ({ id: i.number, title: i.title, url: i.html_url, state: i.state, merged: false, date: i.created_at?.slice(0, 10) })),
+    prs: (prData.items || []).map(i => ({
+      gid: i.id,
+      id: i.number,
+      title: i.title,
+      url: i.html_url,
+      state: i.state,
+      merged: mergedIdSet.has(i.id),
+      date: i.created_at?.slice(0, 10),
+      org,
+      repoFull: parseRepoFullFromHtmlUrl(i.html_url),
+    })),
+    issues: (issData.items || []).map(i => ({
+      gid: i.id,
+      id: i.number,
+      title: i.title,
+      url: i.html_url,
+      state: i.state,
+      merged: false,
+      date: i.created_at?.slice(0, 10),
+      org,
+      repoFull: parseRepoFullFromHtmlUrl(i.html_url),
+    })),
   };
 }
 
@@ -133,11 +189,11 @@ function Popup({ title, onClose, children }) {
 
   return (
     <div onClick={onClose} style={{ position: "fixed", inset: 0, zIndex: 200, background: "rgba(0,0,0,0.4)", display: "flex", alignItems: "center", justifyContent: "center", padding: "24px" }}>
-      <div onClick={e => e.stopPropagation()} style={{ background: "#fff", border: "1px solid #ccc", borderRadius: 10, width: "100%", maxWidth: 680, maxHeight: "82vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
+      <div onClick={e => e.stopPropagation()} style={{ background: "#fff", border: "1px solid #ccc", borderRadius: 10, width: "100%", maxWidth: 780, maxHeight: "82vh", display: "flex", flexDirection: "column", overflow: "hidden" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 20px", borderBottom: "1px solid #e8e8e8", flexShrink: 0 }}>
           <span style={{ fontSize: 14, fontWeight: 600, color: "#111" }}>{title}</span>
           <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "#555", display: "flex", padding: 4 }}>
-            <Ico.close />
+            <X size={16} strokeWidth={1.8} />
           </button>
         </div>
         <div style={{ overflowY: "auto", flex: 1, padding: "18px 20px" }}>
@@ -148,76 +204,257 @@ function Popup({ title, onClose, children }) {
   );
 }
 
+function Pill({ active, onClick, children }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        gap: 6,
+        fontSize: 12,
+        fontWeight: 500,
+        padding: "7px 10px",
+        borderRadius: 999,
+        border: `1px solid ${active ? "#111" : "#d0d0d0"}`,
+        background: active ? "#111" : "#fff",
+        color: active ? "#fff" : "#444",
+        cursor: "pointer",
+        fontFamily: "inherit",
+        whiteSpace: "nowrap",
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+function MonoBadge({ label, tone = "subtle" }) {
+  const cfg = tone === "strong"
+    ? { border: "#111", bg: "#111", fg: "#fff" }
+    : tone === "muted"
+    ? { border: "#e2e2e2", bg: "#f6f6f6", fg: "#555" }
+    : { border: "#d0d0d0", bg: "#fff", fg: "#555" };
+
+  return (
+    <span style={{ display: "inline-flex", alignItems: "center", fontSize: 11, fontWeight: 500, color: cfg.fg, border: `1px solid ${cfg.border}`, background: cfg.bg, borderRadius: 999, padding: "3px 8px", whiteSpace: "nowrap" }}>
+      {label}
+    </span>
+  );
+}
+
 /* ══════════════════════════════════════════════════
    CONTRIBUTIONS POPUP CONTENT
 ══════════════════════════════════════════════════ */
 function ContribContent({ contribs, loading }) {
-  const [tab, setTab] = useState(0);
+  const [org, setOrg] = useState("all");
+  const [kind, setKind] = useState("all"); // all | pr | issue
+  const [status, setStatus] = useState("all"); // all | open | closed | merged
+  const [impact, setImpact] = useState("all"); // all | high | medium | low
+  const [query, setQuery] = useState("");
+  const [sort, setSort] = useState("new"); // new | old
+
+  const rows = useMemo(() => {
+    const orgs = ORGS.map((o, i) => ({ ...o, data: contribs[i] }));
+    const selected = org === "all" ? orgs : orgs.filter(o => o.org === org);
+
+    let out = [];
+    for (const o of selected) {
+      const prs = (o.data?.prs || []).map(p => ({ ...p, _kind: "pr", _org: o.name }));
+      const issues = (o.data?.issues || []).map(it => ({ ...it, _kind: "issue", _org: o.name }));
+      out = out.concat(kind === "issue" ? issues : kind === "pr" ? prs : prs.concat(issues));
+    }
+
+    const q = query.trim().toLowerCase();
+    if (q) out = out.filter(r => (r.title || "").toLowerCase().includes(q));
+
+    if (status !== "all") {
+      out = out.filter(r => {
+        if (status === "merged") return r._kind === "pr" && r.merged;
+        if (status === "open") return r.state === "open" && !(r._kind === "pr" && r.merged);
+        if (status === "closed") return r.state === "closed" && !(r._kind === "pr" && r.merged);
+        return true;
+      });
+    }
+
+    if (impact !== "all") {
+      out = out.filter(r => {
+        if (r._kind !== "pr") return false;
+        const key = r.repoFull ? `${r.repoFull}#${r.id}` : null;
+        if (!key) return false;
+        const lvl = (impactCache?.items?.[key]?.impactLevel || "").toLowerCase();
+        return lvl === impact;
+      });
+    }
+
+    out.sort((a, b) => {
+      const da = a.date || "";
+      const db = b.date || "";
+      if (da === db) return 0;
+      return sort === "new" ? (da < db ? 1 : -1) : (da < db ? -1 : 1);
+    });
+
+    return out;
+  }, [contribs, org, kind, status, impact, query, sort]);
+
   if (loading) return (
     <div style={{ display: "flex", alignItems: "center", gap: 10, color: "#666", fontSize: 13, padding: "20px 0" }}>
       <Ico.spin /> Fetching from GitHub API…
     </div>
   );
+
   return (
-    <div>
-      <div style={{ display: "flex", gap: 6, marginBottom: 18 }}>
-        {ORGS.map((org, i) => (
-          <button key={org.name} onClick={() => setTab(i)}
-            style={{ fontSize: 12, fontWeight: 500, padding: "5px 14px", borderRadius: 6, border: `1px solid ${tab === i ? "#111" : "#ccc"}`, background: tab === i ? "#111" : "#fff", color: tab === i ? "#fff" : "#555", cursor: "pointer", fontFamily: "inherit" }}>
-            {org.name}
-          </button>
-        ))}
+    <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+      {contribs.some(c => c?.error) && (
+        <div style={{ padding: "10px 12px", border: "1px solid #e8e8e8", borderRadius: 10, background: "#fff" }}>
+          <span style={{ fontSize: 12, color: "#666" }}>
+            Some org data failed to load (often GitHub rate limits). Try again in a minute, or set a token.
+          </span>
+        </div>
+      )}
+
+      <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <MonoBadge label={`Total 18 merged PRs`} tone="muted" />
+            <span style={{ fontSize: 11, color: "#777" }}>Across {ORGS.map(o => o.name).join(" · ")}</span>
+          </div>
+          <span style={{ fontSize: 11, color: "#999" }}>Impact is AI-generated (Gemini) and cached to avoid repeated calls.</span>
+        </div>
       </div>
 
-      {contribs[tab] && (() => {
-        const { prs, issues } = contribs[tab];
-        return (
-          <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-            <div>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-                <span style={{ color: "#555" }}><Ico.pr /></span>
-                <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "#555" }}>Pull Requests</span>
-                <span style={{ fontSize: 11, background: "#f0f0f0", color: "#555", padding: "1px 8px", borderRadius: 20 }}>{prs.length}</span>
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
-                {prs.length === 0 && <p style={{ fontSize: 13, color: "#888", padding: "8px 0" }}>No pull requests found.</p>}
-                {prs.map(pr => (
-                  <a key={pr.id} href={pr.url} target="_blank" rel="noopener noreferrer"
-                    style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "9px 10px", borderRadius: 6, textDecoration: "none" }}>
-                    <span style={{ marginTop: 1, flexShrink: 0, color: pr.merged ? "#a371f7" : pr.state === "closed" ? "#e5534b" : "#3fb950" }}><Ico.pr /></span>
-                    <span style={{ flex: 1, fontSize: 13, color: "#111", lineHeight: 1.5 }}>{pr.title}</span>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-                      <span style={{ fontSize: 11, color: "#888" }}>#{pr.id}</span>
-                      <Badge state={pr.state} merged={pr.merged} />
-                    </div>
-                  </a>
-                ))}
-              </div>
-            </div>
-            <div style={{ borderTop: "1px solid #e8e8e8", paddingTop: 18 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-                <span style={{ color: "#555" }}><Ico.issue /></span>
-                <span style={{ fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase", color: "#555" }}>Issues</span>
-                <span style={{ fontSize: 11, background: "#f0f0f0", color: "#555", padding: "1px 8px", borderRadius: 20 }}>{issues.length}</span>
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
-                {issues.length === 0 && <p style={{ fontSize: 13, color: "#888", padding: "8px 0" }}>No issues found.</p>}
-                {issues.map(iss => (
-                  <a key={iss.id} href={iss.url} target="_blank" rel="noopener noreferrer"
-                    style={{ display: "flex", alignItems: "flex-start", gap: 10, padding: "9px 10px", borderRadius: 6, textDecoration: "none" }}>
-                    <span style={{ marginTop: 1, flexShrink: 0, color: iss.state === "closed" ? "#a371f7" : "#3fb950" }}><Ico.issue /></span>
-                    <span style={{ flex: 1, fontSize: 13, color: "#111", lineHeight: 1.5 }}>{iss.title}</span>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
-                      <span style={{ fontSize: 11, color: "#888" }}>#{iss.id}</span>
-                      <Badge state={iss.state} merged={false} isIssue />
-                    </div>
-                  </a>
-                ))}
-              </div>
-            </div>
+      <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", padding: "12px 12px", border: "1px solid #e8e8e8", borderRadius: 10, background: "#fafafa" }}>
+        <span style={{ display: "inline-flex", alignItems: "center", gap: 6, color: "#666", fontSize: 11, fontWeight: 600, letterSpacing: "0.08em", textTransform: "uppercase" }}>
+          <SlidersHorizontal size={14} strokeWidth={1.8} /> Filters
+        </span>
+
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+          <Pill active={org === "all"} onClick={() => setOrg("all")}>All orgs</Pill>
+          {ORGS.map(o => (
+            <Pill key={o.org} active={org === o.org} onClick={() => setOrg(o.org)}>{o.name}</Pill>
+          ))}
+        </div>
+
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+          <Pill active={kind === "all"} onClick={() => setKind("all")}>
+            <Circle size={14} strokeWidth={1.8} /> All
+          </Pill>
+          <Pill active={kind === "pr"} onClick={() => setKind("pr")}>
+            <GitPullRequest size={14} strokeWidth={1.8} /> PRs
+          </Pill>
+          <Pill active={kind === "issue"} onClick={() => setKind("issue")}>
+            <CircleDot size={14} strokeWidth={1.8} /> Issues
+          </Pill>
+        </div>
+
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+          <Pill active={status === "all"} onClick={() => setStatus("all")}>Status: All</Pill>
+          <Pill active={status === "open"} onClick={() => setStatus("open")}>Open</Pill>
+          <Pill active={status === "closed"} onClick={() => setStatus("closed")}>Closed</Pill>
+          <Pill active={status === "merged"} onClick={() => setStatus("merged")}>
+            <CheckCheck size={14} strokeWidth={1.8} /> Merged
+          </Pill>
+        </div>
+
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
+          <Pill active={impact === "all"} onClick={() => setImpact("all")}>
+            <Sparkles size={14} strokeWidth={1.8} /> Impact: All
+          </Pill>
+          <Pill active={impact === "high"} onClick={() => setImpact("high")}>High</Pill>
+          <Pill active={impact === "medium"} onClick={() => setImpact("medium")}>Medium</Pill>
+          <Pill active={impact === "low"} onClick={() => setImpact("low")}>Low</Pill>
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 220 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 10px", borderRadius: 999, border: "1px solid #d0d0d0", background: "#fff", flex: 1 }}>
+            <Search size={14} strokeWidth={1.8} color="#666" />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search titles…"
+              style={{ border: "none", outline: "none", fontFamily: "inherit", fontSize: 12, flex: 1, color: "#111", background: "transparent" }}
+            />
           </div>
-        );
-      })()}
+          <button
+            onClick={() => setSort(s => (s === "new" ? "old" : "new"))}
+            style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 500, padding: "7px 10px", borderRadius: 999, border: "1px solid #d0d0d0", background: "#fff", color: "#444", cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" }}
+          >
+            <ArrowDownUp size={14} strokeWidth={1.8} /> {sort === "new" ? "Newest" : "Oldest"}
+          </button>
+        </div>
+      </div>
+
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        {rows.length === 0 && (
+          <p style={{ fontSize: 13, color: "#777", padding: "12px 2px" }}>No results for the current filters.</p>
+        )}
+
+        {rows.map((r) => {
+          const key = r.repoFull ? `${r.repoFull}#${r.id}` : null;
+          const impactInfo = r._kind === "pr" ? impactCache?.items?.[key] : null;
+          const impactLevel = impactInfo?.impactLevel || null;
+          const impactSummary = impactInfo?.impactSummary || null;
+
+          const isMerged = r._kind === "pr" && r.merged;
+          const statusLabel = isMerged ? "merged" : r.state;
+
+          return (
+            <a
+              key={`${r._kind}-${r.repoFull || r.org}-${r.gid || r.id}`}
+              href={r.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                gap: 6,
+                padding: "12px 12px",
+                borderRadius: 10,
+                border: "1px solid #e8e8e8",
+                background: "#fff",
+                textDecoration: "none",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "flex-start", gap: 10 }}>
+                <span style={{ marginTop: 1, flexShrink: 0, color: "#444" }}>
+                  {r._kind === "pr" ? <GitPullRequest size={16} strokeWidth={1.8} /> : <CircleDot size={16} strokeWidth={1.8} />}
+                </span>
+
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                    <span style={{ fontSize: 13, color: "#111", lineHeight: 1.45, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {r.title}
+                    </span>
+                    <span style={{ fontSize: 11, color: "#999", flexShrink: 0 }}>{r.repoFull || r._org}</span>
+                  </div>
+                  {r._kind === "pr" && (
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 6 }}>
+                      <MonoBadge label={`#${r.id}`} tone="subtle" />
+                      {r.date && <MonoBadge label={r.date} tone="muted" />}
+                      <MonoBadge label={statusLabel} tone={isMerged ? "strong" : "subtle"} />
+                      {impactLevel ? <MonoBadge label={`Impact: ${impactLevel}`} tone="muted" /> : <MonoBadge label="Impact: TBD" tone="muted" />}
+                    </div>
+                  )}
+                  {r._kind === "issue" && (
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginTop: 6 }}>
+                      <MonoBadge label={`#${r.id}`} tone="subtle" />
+                      {r.date && <MonoBadge label={r.date} tone="muted" />}
+                      <MonoBadge label={r.state} tone="subtle" />
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {r._kind === "pr" && impactSummary && (
+                <div style={{ display: "flex", alignItems: "center", gap: 8, paddingLeft: 26 }}>
+                  <Sparkles size={14} strokeWidth={1.8} color="#777" />
+                  <span style={{ fontSize: 12, color: "#666", lineHeight: 1.45 }}>{impactSummary}</span>
+                </div>
+              )}
+            </a>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -241,7 +478,7 @@ function ResumeViewer({ onClose }) {
             <Ico.download /> Download
           </a>
           <button onClick={onClose} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12, fontWeight: 500, color: "#111", background: "#fff", border: "1px solid #ccc", borderRadius: 6, padding: "5px 12px", cursor: "pointer", fontFamily: "inherit" }}>
-            <Ico.close /> Close
+            <X size={14} strokeWidth={1.8} /> Close
           </button>
         </div>
       </div>
@@ -278,7 +515,7 @@ export default function App() {
   const close = useCallback(() => setPopup(null), []);
 
   useEffect(() => {
-    Promise.all(ORGS.map(o => fetchOrgContribs(o.repo)))
+    Promise.all(ORGS.map(o => fetchOrgContribs(o.org)))
       .then(results => { setContribs(results); setLoading(false); })
       .catch(() => setLoading(false));
   }, []);
@@ -303,9 +540,23 @@ export default function App() {
           <span style={{ fontSize: 14, fontWeight: 600, letterSpacing: "-0.02em", color: "#111" }}>
             mohan-bee
           </span>
-          <div style={{ display: "flex", gap: 6 }}>
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <a
+              href="https://gitroll.io/profile/uZEvGpS36uSU2V0iQdA2VmJMQnnO2"
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ display: "inline-flex", alignItems: "center", border: "1px solid #d0d0d0", borderRadius: 8, padding: "2px 6px", background: "#fff", textDecoration: "none" }}
+              title="GitRoll"
+            >
+              <img
+                src="https://gitroll.io/api/badges/profiles/v1/uZEvGpS36uSU2V0iQdA2VmJMQnnO2?theme=dracula"
+                alt="GitRoll Profile Badge"
+                loading="lazy"
+                style={{ height: 20, width: "auto", display: "block" }}
+              />
+            </a>
             {[
-              { icon: <Ico.email />, label: "mohan@email.com", href: "mailto:mohan@email.com" },
+              { icon: <Ico.email />, label: "mohn08052006@gmail.com", href: "mailto:mohn08052006@gmail.com" },
               { icon: <Ico.github />, label: "GitHub", href: "https://github.com/mohan-bee" },
               { icon: <Ico.linkedin />, label: "LinkedIn", href: "https://www.linkedin.com/in/mohan-a-88b655318" },
             ].map(l => (
@@ -336,10 +587,10 @@ export default function App() {
                 { Icon: Ico.rust, name: "Rust" },
                 { Icon: Ico.ts, name: "TypeScript" },
                 { Icon: Ico.py, name: "Python" },
-              ].map(({ Icon, name }) => (
+              ].map((t) => (
                 <span key={name} style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11, fontWeight: 400, color: "#333", border: "1px solid #d0d0d0", borderRadius: 20, padding: "4px 12px" }}>
-                  <span style={{ display: "flex" }}><Icon /></span>
-                  {name}
+                  <span style={{ display: "flex" }}><t.Icon /></span>
+                  {t.name}
                 </span>
               ))}
             </div>
