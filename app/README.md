@@ -1,18 +1,30 @@
-# React + Vite
+# Portfolio App
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+React + Vite app for Mohan's portfolio.
 
-Currently, two official plugins are available:
+## Run
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+```bash
+npm install
+npm run dev
+```
 
-## React Compiler
+## Build
 
-The React Compiler is enabled on this template. See [this documentation](https://react.dev/learn/react-compiler) for more information.
+```bash
+npm run build
+npm run preview
+```
 
-Note: This will impact Vite dev & build performances.
+## Check
 
-## Expanding the ESLint configuration
+```bash
+npm run lint
+```
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+## Data
+
+- GitHub contribution data is fetched from the GitHub Search API.
+- Results are cached in `localStorage` for 12 hours.
+- GitRoll stats are fetched from the public GitRoll profile page with fallback values.
+- Resume currently redirects to a Google Doc.
