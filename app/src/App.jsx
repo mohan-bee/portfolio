@@ -13,7 +13,7 @@ const GITROLL_FALLBACK = {
   india: "54",
   lpu: "1",
 };
-const CONTRIB_CACHE_KEY = `mohan-bee:github-contribs:${ORGS.map((o) => o.org).join(",")}`;
+const CONTRIB_CACHE_KEY = `mohan-bee:github-contribs:v2:${ORGS.map((o) => o.org).join(",")}`;
 const CONTRIB_CACHE_TTL = 1000 * 60 * 60 * 12;
 
 const pixelPaths = {
@@ -81,22 +81,28 @@ function parseRepoFullFromHtmlUrl(htmlUrl) {
 
 async function fetchOrgContribs(org) {
   const h = { Accept: "application/vnd.github+json" };
-  const [prRes, issRes] = await Promise.all([
+  const [prRes, mergedPrRes, issRes] = await Promise.all([
     fetch(`https://api.github.com/search/issues?q=org:${org}+author:${AUTHOR}+is:pr&per_page=100`, { headers: h }),
+    fetch(`https://api.github.com/search/issues?q=org:${org}+author:${AUTHOR}+is:pr+is:merged&per_page=1`, { headers: h }),
     fetch(`https://api.github.com/search/issues?q=org:${org}+author:${AUTHOR}+is:issue&per_page=100`, { headers: h }),
   ]);
 
-  if (!prRes.ok || !issRes.ok) {
-    const s = [prRes, issRes].find((r) => !r.ok);
+  if (!prRes.ok || !mergedPrRes.ok || !issRes.ok) {
+    const s = [prRes, mergedPrRes, issRes].find((r) => !r.ok);
     const t = await s.text().catch(() => "");
     return { prs: [], issues: [], error: `GitHub API error (${s.status}): ${t || s.statusText}` };
   }
 
-  const [prData, issData] = await Promise.all([prRes.json(), issRes.json()]);
-  const msg = prData?.message || issData?.message;
+  const [prData, mergedPrData, issData] = await Promise.all([
+    prRes.json(),
+    mergedPrRes.json(),
+    issRes.json(),
+  ]);
+  const msg = prData?.message || mergedPrData?.message || issData?.message;
   if (msg) return { prs: [], issues: [], error: `GitHub API: ${msg}` };
 
   return {
+    mergedCount: mergedPrData.total_count || 0,
     prs: (prData.items || []).map((i) => ({
       gid: i.id,
       id: i.number,
@@ -213,7 +219,7 @@ function MonoBadge({ label, tone = "subtle" }) {
   return <span className={`mono-badge mono-badge--${tone}`}>{label}</span>;
 }
 
-function ContribContent({ contribs, loading }) {
+function ContribContent({ contribs, loading, mergedTotal }) {
   const [org, setOrg] = useState("all");
   const [kind, setKind] = useState("all");
   const [status, setStatus] = useState("all");
@@ -279,7 +285,7 @@ function ContribContent({ contribs, loading }) {
       )}
 
       <div className="contrib-head">
-        <MonoBadge label="18 merged PRs" tone="strong" />
+        <MonoBadge label={`${mergedTotal} merged PRs`} tone="strong" />
         <span>Across {ORGS.map((o) => o.name).join(" / ")}</span>
       </div>
 
@@ -548,7 +554,10 @@ export default function App() {
       .catch(() => setGitRoll(GITROLL_FALLBACK));
   }, []);
 
-  const mergedTotal = contribs.reduce((sum, d) => sum + (d?.prs || []).filter((p) => p.merged).length, 0);
+  const mergedTotal = contribs.reduce(
+    (sum, d) => sum + (d?.mergedCount ?? (d?.prs || []).filter((p) => p.merged).length),
+    0,
+  );
 
   return (
     <>
@@ -626,7 +635,7 @@ export default function App() {
             <div className="mini-stats">
               {ORGS.map((org, i) => {
                 const d = contribs[i];
-                const merged = d ? d.prs.filter((p) => p.merged).length : null;
+                const merged = d ? (d.mergedCount ?? d.prs.filter((p) => p.merged).length) : null;
                 return (
                   <div key={org.name} className={loading ? "is-loading" : ""}>
                     <strong>{org.name}</strong>
@@ -643,7 +652,7 @@ export default function App() {
 
       {popup === "contribs" && (
         <Popup title="Open Source Contributions" onClose={close}>
-          <ContribContent contribs={contribs} loading={loading} />
+          <ContribContent contribs={contribs} loading={loading} mergedTotal={mergedTotal} />
         </Popup>
       )}
       {showProject && <ProjectPreview onClose={() => setShowProject(false)} />}
