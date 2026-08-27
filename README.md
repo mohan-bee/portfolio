@@ -36,4 +36,4 @@ npm run preview
 
 ## Notes
 
-The contribution data uses the public GitHub Search API and caches results in the browser for 12 hours. If unauthenticated GitHub requests are rate-limited, the app falls back to saved data when available.
+The contribution data uses the public GitHub Search API and caches results in the browser for 12 hours. Merged totals come from GitHub's complete search count rather than the 100 visible result rows. If unauthenticated GitHub requests are rate-limited, the app falls back to saved data when available.

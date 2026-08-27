@@ -24,7 +24,8 @@ npm run lint
 
 ## Data
 
-- GitHub contribution data is fetched from the GitHub Search API.
+- GitHub contribution data is fetched from the GitHub Search API, with a separate query for accurate merged totals.
+- AI impact summaries use the PR description, change statistics, filenames, and patches as evidence.
 - Results are cached in `localStorage` for 12 hours.
 - GitRoll stats are fetched from the public GitRoll profile page with fallback values.
 - Resume currently redirects to a Google Doc.
